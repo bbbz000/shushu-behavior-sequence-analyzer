@@ -329,11 +329,12 @@ function drawChart(events, metric){
     pborder:cssVar('--c-pointborder'), vlabel:cssVar('--c-vlabel'), accent:cssVar('--accent')
   };
   const showVals = document.getElementById('showValues').checked;
-  const raw = events
-    .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined
-              && e.tMs>=rangeStartMs && e.tMs<=rangeEndMs)
+  // full：该属性全部有值的点（不受区间限制）；raw：落在区间内的点
+  const full = events
+    .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined)
     .map(e=>({v:e.propty[metric], name:e.name, time:e.time, tMs:e.tMs, propty:e.propty}))
     .sort((a,b)=>a.tMs-b.tMs);
+  const raw = full.filter(p=>p.tMs>=rangeStartMs && p.tMs<=rangeEndMs);
 
   const numeric = raw.length>0 && raw.every(p=>typeof p.v==='number');
 
@@ -426,17 +427,33 @@ function drawChart(events, metric){
   ctx.fillStyle=C.axis; ctx.fillText('时间', 0, baseY+7);
   ctx.fillStyle=C.rel; ctx.fillText('相对', 0, baseY+23);
 
-  // 计算每个点坐标
-  const pts = raw.map(p=>{
-    const x = xOf(p.tMs);
-    const y = numeric ? yOf(p.v) : yOf(categories.indexOf(String(p.v)));
-    return {x,y,...p};
+  const coord = p => ({
+    x: xOf(p.tMs),
+    y: numeric ? yOf(p.v) : yOf(categories.indexOf(String(p.v))),
+    ...p
   });
 
-  // 折线
+  // 计算每个点坐标（仅区间内，用于画点/数值/命中）
+  const pts = raw.map(coord);
+
+  // 折线：额外纳入区间外紧邻的左右各一个点，使靠近边缘的连线延伸到边框
+  let linePts = raw;
+  if(full.length > raw.length && raw.length > 0){
+    const lo = full.indexOf(raw[0]);
+    const hi = full.indexOf(raw[raw.length-1]);
+    const startI = Math.max(0, lo-1);
+    const endI = Math.min(full.length-1, hi+1);
+    linePts = full.slice(startI, endI+1);
+  }
+  const lineCoords = linePts.map(coord);
+
+  // 折线（裁剪到绘图区，越界的邻居连线在边框处被裁掉）
+  ctx.save();
+  ctx.beginPath(); ctx.rect(padL, padT, plotW, plotH); ctx.clip();
   ctx.beginPath();
-  pts.forEach((p,i)=>{ i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y); });
+  lineCoords.forEach((p,i)=>{ i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y); });
   ctx.strokeStyle=C.accent; ctx.lineWidth=2; ctx.stroke();
+  ctx.restore();
 
   // 数据点
   hitboxes=[];
