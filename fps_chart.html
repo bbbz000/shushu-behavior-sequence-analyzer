@@ -65,6 +65,18 @@
   .filter-item .nofps{color:#c0392b;font-size:11px;}
   .chart-ctl{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
   .chart-ctl label{font-size:13px;color:var(--muted);}
+  .range-ctl{display:flex;flex-direction:column;gap:6px;margin:4px 0 12px;padding:10px 14px;background:#fafbfc;border:1px solid var(--border);border-radius:8px;}
+  .range-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);}
+  .range-row .tag{min-width:34px;}
+  .range-row .val{font-family:Consolas,Menlo,monospace;color:var(--text);}
+  .dual-slider{position:relative;height:30px;margin:2px 8px 0;touch-action:none;}
+  .ds-track{position:absolute;top:13px;left:0;right:0;height:4px;background:#e4e7ec;border-radius:2px;}
+  .ds-fill{position:absolute;top:13px;height:4px;background:var(--accent);border-radius:2px;}
+  .ds-thumb{position:absolute;top:7px;width:16px;height:16px;margin-left:-8px;background:#fff;
+    border:2px solid var(--accent);border-radius:50%;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.25);outline:none;}
+  .ds-thumb:hover{background:#f0f4ff;}
+  .ds-thumb:focus-visible{box-shadow:0 0 0 3px rgba(59,108,246,.3);}
+  .ds-thumb:active{cursor:grabbing;}
 </style>
 </head>
 <body>
@@ -97,6 +109,24 @@
       <label for="metric">分析属性（纵轴）</label>
       <select id="metric"></select>
       <span id="metricInfo" class="meta" style="margin-left:0;"></span>
+    </div>
+    <div class="range-ctl" id="rangeCtl" style="display:none;">
+      <div class="range-row">
+        <span class="tag">时间区间</span>
+        <span class="val" id="rangeStartVal">--</span>
+        <span style="color:var(--muted);">→</span>
+        <span class="val" id="rangeEndVal">--</span>
+        <button id="rangeReset" class="ghost mini" style="margin-left:auto;">重置区间</button>
+      </div>
+      <div class="dual-slider" id="dualSlider">
+        <div class="ds-track"></div>
+        <div class="ds-fill" id="dsFill"></div>
+        <div class="ds-thumb" id="dsThumbA" tabindex="0" role="slider" aria-label="开始时间"></div>
+        <div class="ds-thumb" id="dsThumbB" tabindex="0" role="slider" aria-label="结束时间"></div>
+      </div>
+      <div class="range-row">
+        <span id="rangeInfo" class="meta" style="margin-left:0;"></span>
+      </div>
     </div>
     <div class="legend" id="legend"></div>
     <canvas id="chart"></canvas>
@@ -236,6 +266,9 @@ function fmtClock(ms){
   const ss = String(s%60).padStart(2,'0');
   return `${hh}:${mm}:${ss}`;
 }
+function fmtClockMs(ms){
+  return fmtClock(ms) + '.' + String(ms%1000).padStart(3,'0');
+}
 function niceMax(v){
   if(v<=0) return 1;
   const p=Math.pow(10,Math.floor(Math.log10(v)));
@@ -250,7 +283,8 @@ function fmtNum(v){
 // events: 已按事件名筛选后的事件；metric: 属性名
 function drawChart(events, metric){
   const raw = events
-    .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined)
+    .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined
+              && e.tMs>=rangeStartMs && e.tMs<=rangeEndMs)
     .map(e=>({v:e.propty[metric], name:e.name, time:e.time, tMs:e.tMs}))
     .sort((a,b)=>a.tMs-b.tMs);
 
@@ -320,6 +354,7 @@ function drawChart(events, metric){
     hitboxes=[]; return {count:0, numeric};
   }
 
+  // 横轴贴合当前筛选后的数据首末点，波形始终从左边贴齐
   const tMin = raw[0].tMs, tMax = raw[raw.length-1].tMs, span = tMax-tMin;
   const xOf = t => span===0 ? padL+plotW/2 : padL + plotW*((t-tMin)/span);
 
@@ -383,6 +418,8 @@ let allEvents = null;
 let curDate='';
 let curMetric='fps';
 const checkedNames = new Set();
+let tMinAll=0, tMaxAll=0;          // 全量事件的时间范围
+let rangeStartMs=0, rangeEndMs=0;  // 当前时间区间筛选
 
 // 收集所有属性键 + 是否数值
 function collectMetrics(events){
@@ -394,6 +431,104 @@ function collectMetrics(events){
     });
   });
   return m;
+}
+
+// ---- 同轴双游标滑块（无外部依赖）----
+let fracA=0, fracB=1;              // 两个游标各自的位置比例 0..1
+function fracToMs(f){ return Math.round(tMinAll + (tMaxAll-tMinAll)*f); }
+
+// 滑块范围跟随“当前属性实际有值的点”，保证滑块 0% = 图表最左点
+function setupRange(events){
+  const times = events
+    .filter(e=>typeof e.tMs==='number' && e.propty[curMetric]!==undefined)
+    .map(e=>e.tMs);
+  const ctl = document.getElementById('rangeCtl');
+  if(times.length===0){ ctl.style.display='none'; rangeStartMs=0; rangeEndMs=0; return; }
+  tMinAll = Math.min(...times);
+  tMaxAll = Math.max(...times);
+  fracA=0; fracB=1;
+  rangeStartMs = tMinAll; rangeEndMs = tMaxAll;
+  ctl.style.display = (tMaxAll>tMinAll) ? 'flex' : 'none';
+  positionThumbs();
+  syncRangeLabels();
+}
+
+// 根据两个游标比例算出区间并更新视觉位置
+function positionThumbs(){
+  const lo=Math.min(fracA,fracB), hi=Math.max(fracA,fracB);
+  rangeStartMs = fracToMs(lo);
+  rangeEndMs   = fracToMs(hi);
+  document.getElementById('dsThumbA').style.left = (fracA*100)+'%';
+  document.getElementById('dsThumbB').style.left = (fracB*100)+'%';
+  const fill=document.getElementById('dsFill');
+  fill.style.left  = (lo*100)+'%';
+  fill.style.width = ((hi-lo)*100)+'%';
+}
+
+function syncRangeLabels(){
+  document.getElementById('rangeStartVal').textContent = fmtClockMs(rangeStartMs);
+  document.getElementById('rangeEndVal').textContent = fmtClockMs(rangeEndMs);
+  const total = tMaxAll - tMinAll;
+  const sel = rangeEndMs - rangeStartMs;
+  document.getElementById('rangeInfo').textContent =
+    total>0 ? `区间 ${(sel/1000).toFixed(2)}s / 全程 ${(total/1000).toFixed(2)}s` : '';
+}
+
+// 拖拽
+function bindDualSlider(){
+  const slider=document.getElementById('dualSlider');
+  let active=null;
+  const fracFromEvent = e=>{
+    const r=slider.getBoundingClientRect();
+    const cx=(e.touches?e.touches[0].clientX:e.clientX);
+    return Math.max(0, Math.min(1, (cx-r.left)/r.width));
+  };
+  const startDrag = which => e=>{
+    active=which; e.preventDefault();
+    document.getElementById('dsThumb'+which).focus();
+  };
+  const move = e=>{
+    if(!active) return;
+    const f=fracFromEvent(e);
+    if(active==='A') fracA=f; else fracB=f;
+    positionThumbs(); syncRangeLabels(); redraw();
+  };
+  const end = ()=>{ active=null; };
+
+  document.getElementById('dsThumbA').addEventListener('mousedown', startDrag('A'));
+  document.getElementById('dsThumbB').addEventListener('mousedown', startDrag('B'));
+  document.getElementById('dsThumbA').addEventListener('touchstart', startDrag('A'), {passive:false});
+  document.getElementById('dsThumbB').addEventListener('touchstart', startDrag('B'), {passive:false});
+  window.addEventListener('mousemove', move);
+  window.addEventListener('touchmove', move, {passive:false});
+  window.addEventListener('mouseup', end);
+  window.addEventListener('touchend', end);
+
+  // 点击轨道：移动更近的游标
+  slider.addEventListener('mousedown', e=>{
+    if(e.target.classList.contains('ds-thumb')) return;
+    const f=fracFromEvent(e);
+    if(Math.abs(f-fracA)<=Math.abs(f-fracB)){ fracA=f; active='A'; }
+    else { fracB=f; active='B'; }
+    positionThumbs(); syncRangeLabels(); redraw();
+  });
+
+  // 键盘：左右微调（±1%），Shift 加速（±10%）
+  const key = which => e=>{
+    let f = which==='A'?fracA:fracB;
+    const step=(e.shiftKey?0.1:0.01);
+    if(e.key==='ArrowLeft'||e.key==='ArrowDown') f-=step;
+    else if(e.key==='ArrowRight'||e.key==='ArrowUp') f+=step;
+    else if(e.key==='Home') f=0;
+    else if(e.key==='End') f=1;
+    else return;
+    e.preventDefault();
+    f=Math.max(0,Math.min(1,f));
+    if(which==='A') fracA=f; else fracB=f;
+    positionThumbs(); syncRangeLabels(); redraw();
+  };
+  document.getElementById('dsThumbA').addEventListener('keydown', key('A'));
+  document.getElementById('dsThumbB').addEventListener('keydown', key('B'));
 }
 
 function buildMetricSelect(events){
@@ -491,7 +626,8 @@ function run(){
     checkedNames.clear();
     allEvents.forEach(e=>checkedNames.add(e.name));
 
-    buildMetricSelect(allEvents);
+    buildMetricSelect(allEvents);   // 先确定 curMetric
+    setupRange(allEvents);          // 滑块范围依赖 curMetric
     redraw();
     statusEl.textContent='✓ 转换成功'; statusEl.className='status ok';
   }catch(err){
@@ -502,7 +638,16 @@ function run(){
   }
 }
 
-document.getElementById('metric').addEventListener('change', e=>{ curMetric=e.target.value; redraw(); });
+document.getElementById('metric').addEventListener('change', e=>{
+  curMetric=e.target.value;
+  setupRange(allEvents);   // 新属性可能有不同的时间跨度，重置滑块范围
+  redraw();
+});
+bindDualSlider();
+document.getElementById('rangeReset').onclick = ()=>{
+  fracA=0; fracB=1;
+  positionThumbs(); syncRangeLabels(); redraw();
+};
 document.getElementById('run').onclick = run;
 document.getElementById('demo').onclick = ()=>{ document.getElementById('input').value=DEMO; run(); };
 document.getElementById('clear').onclick = ()=>{
