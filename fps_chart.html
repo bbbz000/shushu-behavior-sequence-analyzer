@@ -401,8 +401,11 @@ function drawChart(events, metric){
     hitboxes=[]; return {count:0, numeric};
   }
 
-  // 横轴贴合当前筛选后的数据首末点，波形始终从左边贴齐
-  const tMin = raw[0].tMs, tMax = raw[raw.length-1].tMs, span = tMax-tMin;
+  // 横轴用选定区间为边界，拖动滑块时视窗连续平移/缩放，边缘事件平滑移入移出
+  // （默认区间正好等于该属性数据的首末点，所以首点仍贴左、末点仍贴右）
+  let tMin = rangeStartMs, tMax = rangeEndMs;
+  if(!(tMax>tMin)){ tMin = raw[0].tMs; tMax = raw[raw.length-1].tMs; }
+  const span = tMax-tMin;
   const xOf = t => span===0 ? padL+plotW/2 : padL + plotW*((t-tMin)/span);
 
   // X 时间轴
