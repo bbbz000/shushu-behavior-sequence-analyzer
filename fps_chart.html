@@ -8,21 +8,35 @@
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --border:#e4e7ec; --text:#1f2430;
     --muted:#6b7280; --accent:#3b6cf6; --danger:#e5484d; --ok:#2fa36b;
+    --input-bg:#fbfcfd; --ghost-bg:#eef1f6; --range-bg:#fafbfc;
+    /* 图表专用（canvas 读取） */
+    --c-grid:#eceef1; --c-vgrid:#f0f2f5; --c-axis:#9aa1ac; --c-cat:#6b7280;
+    --c-baseline:#d7dbe0; --c-reltext:#b7bcc4; --c-pointborder:#ffffff; --c-vlabel:#4b5563;
   }
+  :root[data-theme="dark"]{
+    --bg:#0f141b; --panel:#171d26; --border:#2a323e; --text:#e6ebf2;
+    --muted:#95a0b0; --accent:#5b8bff; --danger:#f0666b; --ok:#3fc07f;
+    --input-bg:#0f141b; --ghost-bg:#232b36; --range-bg:#1b222c;
+    --c-grid:#232b36; --c-vgrid:#1e252f; --c-axis:#7c8797; --c-cat:#95a0b0;
+    --c-baseline:#3a4453; --c-reltext:#5f6b7a; --c-pointborder:#171d26; --c-vlabel:#aab4c2;
+  }
+  html,body{transition:background .2s,color .2s;}
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--bg); color:var(--text);
     font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
     padding:24px;
   }
-  h1{font-size:18px;margin:0 0 4px;}
+  .top{display:flex;align-items:center;gap:12px;}
+  h1{font-size:18px;margin:0 0 4px;flex:1;}
+  #themeBtn{background:var(--ghost-bg);color:var(--text);border-radius:8px;padding:7px 14px;font-size:13px;}
   .sub{color:var(--muted);margin:0 0 18px;font-size:13px;}
   .wrap{max-width:1100px;margin:0 auto;}
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;}
   textarea{
     width:100%;min-height:180px;resize:vertical;border:1px solid var(--border);
     border-radius:8px;padding:12px;font:12px/1.55 "Consolas","Menlo",monospace;
-    color:var(--text);background:#fbfcfd;outline:none;
+    color:var(--text);background:var(--input-bg);outline:none;
   }
   textarea:focus{border-color:var(--accent);}
   .row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;}
@@ -31,11 +45,11 @@
     background:var(--accent);color:#fff;font-weight:500;
   }
   button:hover{filter:brightness(1.05);}
-  button.ghost{background:#eef1f6;color:var(--text);}
+  button.ghost{background:var(--ghost-bg);color:var(--text);}
   button.mini{padding:5px 12px;font-size:12px;}
   select{
     border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;
-    background:#fff;color:var(--text);cursor:pointer;outline:none;
+    background:var(--panel);color:var(--text);cursor:pointer;outline:none;
   }
   select:focus{border-color:var(--accent);}
   .status{font-size:13px;}
@@ -52,10 +66,16 @@
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:6px 0;flex-wrap:wrap;align-items:center;}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
   #tooltip{
-    position:fixed;pointer-events:none;background:#0f1420;color:#fff;padding:6px 9px;
-    border-radius:6px;font-size:12px;white-space:nowrap;opacity:0;transition:opacity .08s;
-    z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25);
+    position:fixed;pointer-events:none;background:#0f1420;color:#fff;padding:8px 10px;
+    border-radius:6px;font-size:12px;opacity:0;transition:opacity .08s;
+    z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:320px;
   }
+  #tooltip .tp-title{font-weight:600;font-size:13px;margin-bottom:2px;}
+  #tooltip .tp-sub{color:#9aa4b8;font-size:11px;margin-bottom:6px;}
+  #tooltip .tp-props{display:flex;flex-direction:column;gap:2px;}
+  #tooltip .tp-row{display:flex;gap:10px;line-height:1.35;}
+  #tooltip .tp-k{color:#9aa4b8;flex:0 0 auto;min-width:52px;}
+  #tooltip .tp-v{color:#e6ebf5;word-break:break-all;text-align:right;flex:1;}
   .ctl-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
   .ctl-title{font-weight:600;font-size:14px;}
   .filter-list{display:flex;flex-wrap:wrap;gap:8px 18px;}
@@ -65,23 +85,26 @@
   .filter-item .nofps{color:#c0392b;font-size:11px;}
   .chart-ctl{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
   .chart-ctl label{font-size:13px;color:var(--muted);}
-  .range-ctl{display:flex;flex-direction:column;gap:6px;margin:4px 0 12px;padding:10px 14px;background:#fafbfc;border:1px solid var(--border);border-radius:8px;}
+  .range-ctl{display:flex;flex-direction:column;gap:6px;margin:4px 0 12px;padding:10px 14px;background:var(--range-bg);border:1px solid var(--border);border-radius:8px;}
   .range-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);}
   .range-row .tag{min-width:34px;}
   .range-row .val{font-family:Consolas,Menlo,monospace;color:var(--text);}
   .dual-slider{position:relative;height:30px;margin:2px 8px 0;touch-action:none;}
-  .ds-track{position:absolute;top:13px;left:0;right:0;height:4px;background:#e4e7ec;border-radius:2px;}
+  .ds-track{position:absolute;top:13px;left:0;right:0;height:4px;background:var(--border);border-radius:2px;}
   .ds-fill{position:absolute;top:13px;height:4px;background:var(--accent);border-radius:2px;}
-  .ds-thumb{position:absolute;top:7px;width:16px;height:16px;margin-left:-8px;background:#fff;
+  .ds-thumb{position:absolute;top:7px;width:16px;height:16px;margin-left:-8px;background:var(--panel);
     border:2px solid var(--accent);border-radius:50%;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.25);outline:none;}
-  .ds-thumb:hover{background:#f0f4ff;}
+  .ds-thumb:hover{background:var(--ghost-bg);}
   .ds-thumb:focus-visible{box-shadow:0 0 0 3px rgba(59,108,246,.3);}
   .ds-thumb:active{cursor:grabbing;}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>数数用户行为序列 · 属性波形图</h1>
+  <div class="top">
+    <h1>数数用户行为序列 · 属性波形图</h1>
+    <button id="themeBtn" title="切换日间/夜间模式">🌙 夜间</button>
+  </div>
   <p class="sub">粘贴「用户行为序列」原始文本后点击生成。横轴为时间轴，纵轴为你选择的属性：数值属性（fps、ping…）画数值波形，文本属性（state、stage…）画类别轨迹。可按事件名称筛选。</p>
 
   <div class="panel">
@@ -269,6 +292,16 @@ function fmtClock(ms){
 function fmtClockMs(ms){
   return fmtClock(ms) + '.' + String(ms%1000).padStart(3,'0');
 }
+// 相对第一个事件的时间，如 +1:30 / +50:59 / +1:05:09
+function fmtRel(deltaMs){
+  const sign = deltaMs<0 ? '-' : '+';
+  let s = Math.round(Math.abs(deltaMs)/1000);
+  const h = Math.floor(s/3600); s -= h*3600;
+  const m = Math.floor(s/60);   s -= m*60;
+  const ss = String(s).padStart(2,'0');
+  if(h>0) return `${sign}${h}:${String(m).padStart(2,'0')}:${ss}`;
+  return `${sign}${m}:${ss}`;
+}
 function niceMax(v){
   if(v<=0) return 1;
   const p=Math.pow(10,Math.floor(Math.log10(v)));
@@ -279,13 +312,23 @@ function niceMax(v){
 function fmtNum(v){
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
+// 读取当前主题下的 CSS 变量（供 canvas 使用）
+function cssVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
 
 // events: 已按事件名筛选后的事件；metric: 属性名
 function drawChart(events, metric){
+  // 当前主题调色板（随日/夜模式变化）
+  const C = {
+    grid:cssVar('--c-grid'), vgrid:cssVar('--c-vgrid'), axis:cssVar('--c-axis'),
+    cat:cssVar('--c-cat'), baseline:cssVar('--c-baseline'), rel:cssVar('--c-reltext'),
+    pborder:cssVar('--c-pointborder'), vlabel:cssVar('--c-vlabel'), accent:cssVar('--accent')
+  };
   const raw = events
     .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined
               && e.tMs>=rangeStartMs && e.tMs<=rangeEndMs)
-    .map(e=>({v:e.propty[metric], name:e.name, time:e.time, tMs:e.tMs}))
+    .map(e=>({v:e.propty[metric], name:e.name, time:e.time, tMs:e.tMs, propty:e.propty}))
     .sort((a,b)=>a.tMs-b.tMs);
 
   const numeric = raw.length>0 && raw.every(p=>typeof p.v==='number');
@@ -305,7 +348,7 @@ function drawChart(events, metric){
     raw.forEach(p=>{ const s=String(p.v); if(!seen.has(s)){seen.add(s); categories.push(s);} });
   }
   const padL = numeric ? 48 : Math.min(200, 60 + Math.max(0,...categories.map(c=>c.length))*7);
-  const padR=24, padT=16, padB=56;
+  const padR=24, padT=16, padB=78;
   const plotW = cssW-padL-padR;
   const plotH = cssH-padT-padB;
 
@@ -330,14 +373,14 @@ function drawChart(events, metric){
     for(let i=0;i<=div;i++){
       const val = yMin + (yMax-yMin)*i/div;
       const y = yOf(val);
-      ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
-      ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText(fmtNum(val), padL-8, y);
+      ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+      ctx.fillStyle=C.axis; ctx.textAlign='right'; ctx.fillText(fmtNum(val), padL-8, y);
     }
   } else {
     categories.forEach((c,idx)=>{
       const y = yOf(idx);
-      ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
-      ctx.fillStyle='#6b7280'; ctx.textAlign='right';
+      ctx.strokeStyle=C.grid; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+      ctx.fillStyle=C.cat; ctx.textAlign='right';
       let lbl=c; if(lbl.length>26) lbl=lbl.slice(0,25)+'…';
       ctx.fillText(lbl, padL-8, y);
     });
@@ -345,11 +388,11 @@ function drawChart(events, metric){
 
   // Y 轴标题
   ctx.save(); ctx.translate(13, padT+plotH/2); ctx.rotate(-Math.PI/2);
-  ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=C.axis; ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText(metric, 0, 0); ctx.restore();
 
   if(raw.length===0){
-    ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=C.axis; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('（当前筛选下没有含 “'+metric+'” 的事件）', cssW/2, padT+plotH/2);
     hitboxes=[]; return {count:0, numeric};
   }
@@ -360,17 +403,21 @@ function drawChart(events, metric){
 
   // X 时间轴
   const baseY = padT+plotH;
-  ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(padL,baseY); ctx.lineTo(cssW-padR,baseY); ctx.stroke();
+  ctx.strokeStyle=C.baseline; ctx.beginPath(); ctx.moveTo(padL,baseY); ctx.lineTo(cssW-padR,baseY); ctx.stroke();
   const ticks = span===0 ? 0 : 6;
   ctx.textBaseline='top'; ctx.textAlign='center'; ctx.font='11px sans-serif';
+  const ref = tFirstEvent || tMin;   // 相对时间参照点：第一个事件
   for(let i=0;i<=ticks;i++){
     const t = span===0 ? tMin : tMin + span*(i/ticks);
     const x = xOf(t);
-    ctx.strokeStyle='#f0f2f5'; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,baseY); ctx.stroke();
-    ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x,baseY+4); ctx.stroke();
-    ctx.fillStyle='#9aa1ac'; ctx.fillText(fmtClock(t), x, baseY+7);
+    ctx.strokeStyle=C.vgrid; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,baseY); ctx.stroke();
+    ctx.strokeStyle=C.baseline; ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x,baseY+4); ctx.stroke();
+    ctx.fillStyle=C.axis; ctx.fillText(fmtClock(t), x, baseY+7);              // 第1行：绝对时间
+    ctx.fillStyle=C.rel; ctx.fillText(fmtRel(t-ref), x, baseY+23);           // 第2行：相对时间
   }
-  ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText('时间', cssW-padR, baseY+26);
+  ctx.textAlign='left';
+  ctx.fillStyle=C.axis; ctx.fillText('时间', 0, baseY+7);
+  ctx.fillStyle=C.rel; ctx.fillText('相对', 0, baseY+23);
 
   // 计算每个点坐标
   const pts = raw.map(p=>{
@@ -382,16 +429,16 @@ function drawChart(events, metric){
   // 折线
   ctx.beginPath();
   pts.forEach((p,i)=>{ i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y); });
-  ctx.strokeStyle='#3b6cf6'; ctx.lineWidth=2; ctx.stroke();
+  ctx.strokeStyle=C.accent; ctx.lineWidth=2; ctx.stroke();
 
   // 数据点
   hitboxes=[];
   pts.forEach(p=>{
     ctx.beginPath(); ctx.arc(p.x,p.y,4.5,0,Math.PI*2);
-    ctx.fillStyle = (numeric && metric==='fps') ? fpsColor(p.v) : '#3b6cf6';
-    ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle = (numeric && metric==='fps') ? fpsColor(p.v) : C.accent;
+    ctx.fill(); ctx.strokeStyle=C.pborder; ctx.lineWidth=1.5; ctx.stroke();
     if(numeric){
-      ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+      ctx.fillStyle=C.vlabel; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
       ctx.fillText(fmtNum(p.v), p.x, p.y-9);
     }
     hitboxes.push(p);
@@ -407,7 +454,16 @@ canvas.addEventListener('mousemove', e=>{
   let hit=null, best=1e9;
   for(const h of hitboxes){ const d=(h.x-mx)**2+(h.y-my)**2; if(d<best&&d<225){best=d;hit=h;} }
   if(hit){
-    tip.innerHTML = `<b>${hit.name}</b><br>时间 ${hit.time}<br>${curMetric} = ${hit.v}`;
+    const rel = fmtRel(hit.tMs-(tFirstEvent||hit.tMs));
+    const esc = s => String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const rows = Object.entries(hit.propty||{}).map(([k,val])=>{
+      const hot = (k===curMetric) ? ' style="color:#8ab4ff"' : '';
+      return `<div class="tp-row"${hot}><span class="tp-k">${esc(k)}</span><span class="tp-v">${esc(val)}</span></div>`;
+    }).join('');
+    tip.innerHTML =
+      `<div class="tp-title">${esc(hit.name)}</div>`+
+      `<div class="tp-sub">${hit.time}　相对 ${rel}</div>`+
+      `<div class="tp-props">${rows}</div>`;
     tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px'; tip.style.opacity=1;
   } else tip.style.opacity=0;
 });
@@ -420,6 +476,7 @@ let curMetric='fps';
 const checkedNames = new Set();
 let tMinAll=0, tMaxAll=0;          // 全量事件的时间范围
 let rangeStartMs=0, rangeEndMs=0;  // 当前时间区间筛选
+let tFirstEvent=0;                 // 第一个事件时间，用作相对时间参照点
 
 // 收集所有属性键 + 是否数值
 function collectMetrics(events){
@@ -616,6 +673,9 @@ function run(){
     const data = parse(raw);
     curDate = data.date;
     allEvents = data.events;
+    // 相对时间参照点 = 第一个事件（按时间最早），与所选属性无关
+    const allT = allEvents.map(e=>e.tMs).filter(t=>typeof t==='number');
+    tFirstEvent = allT.length ? Math.min(...allT) : 0;
 
     const clean = {date:data.date, events:data.events.map(e=>({time:e.time,name:e.name,propty:e.propty}))};
     document.getElementById('json').textContent = JSON.stringify(clean,null,2);
@@ -664,6 +724,28 @@ document.getElementById('copyBtn').onclick = e=>{
     .then(()=>{ e.target.textContent='已复制'; setTimeout(()=>e.target.textContent='复制',1200); });
 };
 window.addEventListener('resize', redraw);
+
+// ---- 日/夜模式 ----
+function applyTheme(mode){
+  document.documentElement.setAttribute('data-theme', mode);
+  const btn = document.getElementById('themeBtn');
+  btn.textContent = mode==='dark' ? '☀️ 日间' : '🌙 夜间';
+  if(allEvents) redraw();   // 重画 canvas 以套用新配色
+}
+function initTheme(){
+  let saved = null;
+  try{ saved = localStorage.getItem('theme'); }catch(e){}
+  if(saved!=='dark' && saved!=='light'){
+    saved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
+  applyTheme(saved);
+}
+document.getElementById('themeBtn').onclick = ()=>{
+  const next = document.documentElement.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+  try{ localStorage.setItem('theme', next); }catch(e){}
+  applyTheme(next);
+};
+initTheme();
 </script>
 </body>
 </html>
