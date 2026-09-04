@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数数用户行为序列 · FPS 波形图</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --border:#e4e7ec; --text:#1f2430;
+    --muted:#6b7280; --accent:#3b6cf6; --danger:#e5484d; --ok:#2fa36b;
+    --grid:#eceef1;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    padding:24px;
+  }
+  h1{font-size:18px;margin:0 0 4px;}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:13px;}
+  .wrap{max-width:1100px;margin:0 auto;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;}
+  textarea{
+    width:100%;min-height:180px;resize:vertical;border:1px solid var(--border);
+    border-radius:8px;padding:12px;font:12px/1.55 "Consolas","Menlo",monospace;
+    color:var(--text);background:#fbfcfd;outline:none;
+  }
+  textarea:focus{border-color:var(--accent);}
+  .row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+  button{
+    border:none;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;
+    background:var(--accent);color:#fff;font-weight:500;
+  }
+  button:hover{filter:brightness(1.05);}
+  button.ghost{background:#eef1f6;color:var(--text);}
+  .status{font-size:13px;}
+  .status.err{color:var(--danger);}
+  .status.ok{color:var(--ok);}
+  .meta{color:var(--muted);font-size:12px;margin-left:auto;}
+  canvas{width:100%;display:block;}
+  details{margin-top:4px;}
+  summary{cursor:pointer;color:var(--muted);font-size:13px;user-select:none;}
+  pre{
+    background:#0f1420;color:#d7e0ef;border-radius:8px;padding:14px;overflow:auto;
+    font:12px/1.5 "Consolas","Menlo",monospace;max-height:360px;margin:10px 0 0;
+  }
+  .hidden{display:none;}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-bottom:6px;flex-wrap:wrap;}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+  #tooltip{
+    position:fixed;pointer-events:none;background:#0f1420;color:#fff;padding:6px 9px;
+    border-radius:6px;font-size:12px;white-space:nowrap;opacity:0;transition:opacity .08s;
+    z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>数数用户行为序列 · FPS 波形图</h1>
+  <p class="sub">把「用户行为序列」原始文本粘贴进来，点击生成。解析成功会画出 FPS 波形（横轴事件、纵轴 FPS 0–60），失败会报错。</p>
+
+  <div class="panel">
+    <textarea id="input" placeholder="在这里粘贴数数导出的原始文本，例如：&#10;2026-09-03&#10;12:17:47.882&#10;ta_app_start&#10;事件名称&#10;ta_app_start&#10;12:17:51.023&#10;总服登录上报token&#10;token&#10;MwTe...&#10;account&#10;LDL3509546285738&#10;事件名称&#10;SDKLoginToken&#10;fps&#10;60"></textarea>
+    <div class="row">
+      <button id="run">生成波形图</button>
+      <button id="demo" class="ghost">填入示例</button>
+      <button id="clear" class="ghost">清空</button>
+      <span id="status" class="status"></span>
+      <span id="meta" class="meta"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="chartPanel" style="display:none;">
+    <div class="legend">
+      <span><i style="background:#e5484d"></i>低 (&lt;30)</span>
+      <span><i style="background:#e8a33d"></i>中 (30–50)</span>
+      <span><i style="background:#2fa36b"></i>高 (&gt;50)</span>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="panel" id="jsonPanel" style="display:none;">
+    <details open>
+      <summary>转换结果 JSON <span id="copyBtn" style="color:var(--accent);margin-left:8px;">复制</span></summary>
+      <pre id="json"></pre>
+    </details>
+  </div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+const DEMO = `2026-09-03
+12:17:47.882
+ta_app_start
+事件名称
+ta_app_start
+12:17:51.023
+总服登录上报token
+token
+MwTeEnzzNiV8zNTA5NTQ2MjhfMTc4ODQwOTA2OV9zZGsxMTM1MDQxNzAO0O0O
+account
+LDL3509546285738
+事件名称
+SDKLoginToken
+fps
+60
+12:17:53.636
+LoginSuccess
+事件名称
+LoginSuccess
+fps
+4
+12:17:53.670
+登陆步骤
+state
+ProcedureInitPackage
+事件名称
+loading_procedure
+fps
+4
+12:17:55.474
+登陆步骤
+state
+ProcedureLoadHotfix
+事件名称
+loading_procedure
+fps
+24
+12:18:02.489
+user_login_start
+事件名称
+user_login_start
+fps
+51
+12:18:02.590
+创角日志
+事件名称
+create_role_success
+12:18:02.592
+角色登陆日志
+事件名称
+role_login
+12:18:11.981
+引导
+guid_id
+1
+事件名称
+guide
+fps
+51`;
+
+const timeRe = /^\d{1,2}:\d{2}:\d{2}\.\d{1,3}$/;
+const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+
+// 把原始文本解析成 {date, events:[{time,name,propty}]}
+function parse(raw){
+  const lines = raw.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.length>0);
+  if(lines.length===0) throw new Error("没有输入数据");
+
+  let date = "";
+  if(dateRe.test(lines[0])) date = lines[0];
+  else { const d = lines.find(l=>dateRe.test(l)); if(d) date = d; }
+
+  const content = lines.filter(l=>!dateRe.test(l));
+  const events = [];
+  let p = 0;
+
+  while(p < content.length){
+    if(!timeRe.test(content[p]))
+      throw new Error(`解析失败：第 ${p+1} 行期望时间戳，却读到 “${content[p]}”`);
+    const time = content[p++];
+
+    if(p >= content.length)
+      throw new Error(`解析失败：“${time}” 之后缺少事件标题`);
+    const title = content[p++];
+
+    const kvs = [];
+    while(p < content.length && !timeRe.test(content[p])) kvs.push(content[p++]);
+    if(kvs.length % 2 !== 0)
+      throw new Error(`解析失败：事件 “${title}” (${time}) 的属性字段数为奇数，key/value 不成对`);
+
+    const propty = {};
+    for(let k=0;k<kvs.length;k+=2){
+      const key = kvs[k];
+      let val = kvs[k+1];
+      if(/^-?\d+(\.\d+)?$/.test(val)) val = Number(val);
+      propty[key] = val;
+    }
+    const name = propty["事件名称"] !== undefined ? String(propty["事件名称"]) : title;
+    events.push({time, name, propty});
+  }
+  if(events.length===0) throw new Error("解析失败：未识别到任何事件");
+  return {date, events};
+}
+
+// ---- 波形图 ----
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+let hitboxes = []; // 用于 tooltip
+
+function fpsColor(v){ return v<30?'#e5484d': v<=50?'#e8a33d':'#2fa36b'; }
+
+function drawChart(events){
+  const pts = events
+    .map((e,i)=>({fps: e.propty.fps, name:e.name, time:e.time, idx:i}))
+    .filter(p=>typeof p.fps==='number');
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.parentElement.clientWidth - 32;
+  const cssH = 420;
+  canvas.style.width = cssW+'px';
+  canvas.style.height = cssH+'px';
+  canvas.width = cssW*dpr;
+  canvas.height = cssH*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const padL=44, padR=20, padT=16, padB=90;
+  const plotW = cssW-padL-padR;
+  const plotH = cssH-padT-padB;
+  const maxY = 60;
+  const yOf = v => padT + plotH*(1 - v/maxY);
+  const xOf = i => pts.length===1 ? padL+plotW/2 : padL + plotW*(i/(pts.length-1));
+
+  // Y 轴网格
+  ctx.font = '11px sans-serif';
+  ctx.textBaseline='middle';
+  for(let v=0; v<=60; v+=10){
+    const y = yOf(v);
+    ctx.strokeStyle = '#eceef1';
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+    ctx.fillStyle = '#9aa1ac'; ctx.textAlign='right';
+    ctx.fillText(v, padL-8, y);
+  }
+
+  if(pts.length===0){
+    ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('（没有包含 fps 的事件，无法绘制波形）', cssW/2, padT+plotH/2);
+    hitboxes=[]; return pts;
+  }
+
+  // 折线
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ const x=xOf(i),y=yOf(p.fps); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.strokeStyle='#3b6cf6'; ctx.lineWidth=2; ctx.stroke();
+
+  // 点 + x 标签
+  hitboxes = [];
+  ctx.textBaseline='alphabetic';
+  pts.forEach((p,i)=>{
+    const x=xOf(i), y=yOf(p.fps);
+    ctx.beginPath(); ctx.arc(x,y,4.5,0,Math.PI*2);
+    ctx.fillStyle=fpsColor(p.fps); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+
+    // fps 数值
+    ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(p.fps, x, y-9);
+
+    // x 轴标签（旋转）
+    ctx.save();
+    ctx.translate(x, cssH-padB+12);
+    ctx.rotate(-Math.PI/4);
+    ctx.fillStyle='#6b7280'; ctx.font='11px sans-serif'; ctx.textAlign='right';
+    let label = p.name; if(label.length>16) label = label.slice(0,15)+'…';
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+
+    hitboxes.push({x,y,...p});
+  });
+  return pts;
+}
+
+// tooltip
+const tip = document.getElementById('tooltip');
+canvas.addEventListener('mousemove', e=>{
+  const r = canvas.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  let hit=null, best=1e9;
+  for(const h of hitboxes){ const d=(h.x-mx)**2+(h.y-my)**2; if(d<best&&d<225){best=d;hit=h;} }
+  if(hit){
+    tip.innerHTML = `<b>${hit.name}</b><br>时间 ${hit.time}<br>FPS ${hit.fps}`;
+    tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px'; tip.style.opacity=1;
+  } else tip.style.opacity=0;
+});
+canvas.addEventListener('mouseleave',()=>tip.style.opacity=0);
+
+// ---- 交互 ----
+const statusEl=document.getElementById('status');
+const metaEl=document.getElementById('meta');
+let lastEvents=null;
+
+function run(){
+  const raw = document.getElementById('input').value;
+  const jsonPanel=document.getElementById('jsonPanel');
+  const chartPanel=document.getElementById('chartPanel');
+  try{
+    const data = parse(raw);
+    document.getElementById('json').textContent = JSON.stringify(data,null,2);
+    jsonPanel.style.display='block';
+    chartPanel.style.display='block';
+    lastEvents = data.events;
+    const pts = drawChart(data.events);
+    statusEl.textContent = '✓ 转换成功'; statusEl.className='status ok';
+    metaEl.textContent = `${data.date||'无日期'} · ${data.events.length} 个事件 · ${pts.length} 个含 fps`;
+  }catch(err){
+    statusEl.textContent = '✗ '+err.message; statusEl.className='status err';
+    metaEl.textContent='';
+    jsonPanel.style.display='none';
+    chartPanel.style.display='none';
+    lastEvents=null;
+  }
+}
+
+document.getElementById('run').onclick = run;
+document.getElementById('demo').onclick = ()=>{ document.getElementById('input').value=DEMO; run(); };
+document.getElementById('clear').onclick = ()=>{
+  document.getElementById('input').value='';
+  statusEl.textContent=''; metaEl.textContent='';
+  document.getElementById('jsonPanel').style.display='none';
+  document.getElementById('chartPanel').style.display='none';
+};
+document.getElementById('copyBtn').onclick = e=>{
+  e.preventDefault();
+  navigator.clipboard.writeText(document.getElementById('json').textContent)
+    .then(()=>{ e.target.textContent='已复制'; setTimeout(()=>e.target.textContent='复制',1200); });
+};
+window.addEventListener('resize', ()=>{ if(lastEvents) drawChart(lastEvents); });
+</script>
+</body>
+</html>
