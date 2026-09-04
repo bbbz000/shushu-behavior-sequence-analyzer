@@ -3,12 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>数数用户行为序列 · FPS 波形图</title>
+<title>数数用户行为序列 · 属性波形图</title>
 <style>
   :root{
     --bg:#f6f7f9; --panel:#ffffff; --border:#e4e7ec; --text:#1f2430;
     --muted:#6b7280; --accent:#3b6cf6; --danger:#e5484d; --ok:#2fa36b;
-    --grid:#eceef1;
   }
   *{box-sizing:border-box;}
   body{
@@ -34,6 +33,11 @@
   button:hover{filter:brightness(1.05);}
   button.ghost{background:#eef1f6;color:var(--text);}
   button.mini{padding:5px 12px;font-size:12px;}
+  select{
+    border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;
+    background:#fff;color:var(--text);cursor:pointer;outline:none;
+  }
+  select:focus{border-color:var(--accent);}
   .status{font-size:13px;}
   .status.err{color:var(--danger);}
   .status.ok{color:var(--ok);}
@@ -45,26 +49,28 @@
     background:#0f1420;color:#d7e0ef;border-radius:8px;padding:14px;overflow:auto;
     font:12px/1.5 "Consolas","Menlo",monospace;max-height:360px;margin:10px 0 0;
   }
-  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-bottom:6px;flex-wrap:wrap;}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin:6px 0;flex-wrap:wrap;align-items:center;}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
   #tooltip{
     position:fixed;pointer-events:none;background:#0f1420;color:#fff;padding:6px 9px;
     border-radius:6px;font-size:12px;white-space:nowrap;opacity:0;transition:opacity .08s;
     z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25);
   }
-  .filter-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
-  .filter-title{font-weight:600;font-size:14px;}
+  .ctl-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .ctl-title{font-weight:600;font-size:14px;}
   .filter-list{display:flex;flex-wrap:wrap;gap:8px 18px;}
   .filter-item{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none;}
   .filter-item input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent);}
   .filter-item .cnt{color:var(--muted);font-size:11px;}
   .filter-item .nofps{color:#c0392b;font-size:11px;}
+  .chart-ctl{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .chart-ctl label{font-size:13px;color:var(--muted);}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>数数用户行为序列 · FPS 波形图</h1>
-  <p class="sub">把「用户行为序列」原始文本粘贴进来，点击生成。横轴为时间轴，纵轴为 FPS（0–60）。下方可勾选/取消事件名称进行筛选。</p>
+  <h1>数数用户行为序列 · 属性波形图</h1>
+  <p class="sub">粘贴「用户行为序列」原始文本后点击生成。横轴为时间轴，纵轴为你选择的属性：数值属性（fps、ping…）画数值波形，文本属性（state、stage…）画类别轨迹。可按事件名称筛选。</p>
 
   <div class="panel">
     <textarea id="input" placeholder="在这里粘贴数数导出的原始文本，例如：&#10;2026-09-03&#10;12:17:47.882&#10;ta_app_start&#10;事件名称&#10;ta_app_start&#10;12:17:51.023&#10;总服登录上报token&#10;token&#10;MwTe...&#10;account&#10;LDL3509546285738&#10;事件名称&#10;SDKLoginToken&#10;fps&#10;60"></textarea>
@@ -78,8 +84,8 @@
   </div>
 
   <div class="panel" id="filterPanel" style="display:none;">
-    <div class="filter-head">
-      <span class="filter-title">事件筛选</span>
+    <div class="ctl-head">
+      <span class="ctl-title">事件筛选</span>
       <button id="checkAll" class="ghost mini">全选</button>
       <button id="checkNone" class="ghost mini">全不选</button>
     </div>
@@ -87,11 +93,12 @@
   </div>
 
   <div class="panel" id="chartPanel" style="display:none;">
-    <div class="legend">
-      <span><i style="background:#e5484d"></i>低 (&lt;30)</span>
-      <span><i style="background:#e8a33d"></i>中 (30–50)</span>
-      <span><i style="background:#2fa36b"></i>高 (&gt;50)</span>
+    <div class="chart-ctl">
+      <label for="metric">分析属性（纵轴）</label>
+      <select id="metric"></select>
+      <span id="metricInfo" class="meta" style="margin-left:0;"></span>
     </div>
+    <div class="legend" id="legend"></div>
     <canvas id="chart"></canvas>
   </div>
 
@@ -215,7 +222,7 @@ function parse(raw){
   return {date, events};
 }
 
-// ---- 波形图（时间轴）----
+// ---- 图表 ----
 const canvas = document.getElementById('chart');
 const ctx = canvas.getContext('2d');
 let hitboxes = [];
@@ -229,88 +236,132 @@ function fmtClock(ms){
   const ss = String(s%60).padStart(2,'0');
   return `${hh}:${mm}:${ss}`;
 }
+function niceMax(v){
+  if(v<=0) return 1;
+  const p=Math.pow(10,Math.floor(Math.log10(v)));
+  const n=v/p;
+  const step = n<=1?1:n<=2?2:n<=5?5:10;
+  return step*p;
+}
+function fmtNum(v){
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
 
-// events: 已按筛选过滤后的事件数组
-function drawChart(events){
-  const pts = events
-    .map(e=>({fps:e.propty.fps, name:e.name, time:e.time, tMs:e.tMs}))
-    .filter(p=>typeof p.fps==='number' && typeof p.tMs==='number')
+// events: 已按事件名筛选后的事件；metric: 属性名
+function drawChart(events, metric){
+  const raw = events
+    .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined)
+    .map(e=>({v:e.propty[metric], name:e.name, time:e.time, tMs:e.tMs}))
     .sort((a,b)=>a.tMs-b.tMs);
+
+  const numeric = raw.length>0 && raw.every(p=>typeof p.v==='number');
 
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.parentElement.clientWidth - 32;
   const cssH = 420;
-  canvas.style.width = cssW+'px';
-  canvas.style.height = cssH+'px';
-  canvas.width = cssW*dpr;
-  canvas.height = cssH*dpr;
+  canvas.style.width = cssW+'px'; canvas.style.height = cssH+'px';
+  canvas.width = cssW*dpr; canvas.height = cssH*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,cssW,cssH);
 
-  const padL=44, padR=24, padT=16, padB=56;
+  // 类别模式需要更宽的左边距放类别名
+  let categories = [];
+  if(!numeric){
+    const seen = new Set();
+    raw.forEach(p=>{ const s=String(p.v); if(!seen.has(s)){seen.add(s); categories.push(s);} });
+  }
+  const padL = numeric ? 48 : Math.min(200, 60 + Math.max(0,...categories.map(c=>c.length))*7);
+  const padR=24, padT=16, padB=56;
   const plotW = cssW-padL-padR;
   const plotH = cssH-padT-padB;
-  const maxY = 60;
-  const yOf = v => padT + plotH*(1 - v/maxY);
 
-  const tMin = pts.length ? pts[0].tMs : 0;
-  const tMax = pts.length ? pts[pts.length-1].tMs : 1;
-  const span = tMax - tMin;
-  const xOf = t => (span===0) ? padL+plotW/2 : padL + plotW*((t-tMin)/span);
-
-  // Y 轴网格
-  ctx.font='11px sans-serif'; ctx.textBaseline='middle';
-  for(let v=0; v<=60; v+=10){
-    const y=yOf(v);
-    ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
-    ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText(v, padL-8, y);
+  // Y 轴映射
+  let yOf, yMax, yMin=0;
+  if(numeric){
+    const dataMax = Math.max(...raw.map(p=>p.v), 0);
+    yMax = metric==='fps' ? 60 : niceMax(dataMax);
+    yMin = Math.min(0, ...raw.map(p=>p.v));
+    yOf = v => padT + plotH*(1 - (v-yMin)/(yMax-yMin || 1));
+  } else {
+    const n = Math.max(1, categories.length-1);
+    yOf = idx => padT + plotH*(1 - idx/n);
   }
+
+  ctx.font='11px sans-serif';
+
+  // Y 轴网格 / 刻度
+  ctx.textBaseline='middle';
+  if(numeric){
+    const div=6;
+    for(let i=0;i<=div;i++){
+      const val = yMin + (yMax-yMin)*i/div;
+      const y = yOf(val);
+      ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+      ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText(fmtNum(val), padL-8, y);
+    }
+  } else {
+    categories.forEach((c,idx)=>{
+      const y = yOf(idx);
+      ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+      ctx.fillStyle='#6b7280'; ctx.textAlign='right';
+      let lbl=c; if(lbl.length>26) lbl=lbl.slice(0,25)+'…';
+      ctx.fillText(lbl, padL-8, y);
+    });
+  }
+
   // Y 轴标题
-  ctx.save(); ctx.translate(12, padT+plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.save(); ctx.translate(13, padT+plotH/2); ctx.rotate(-Math.PI/2);
   ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText('FPS', 0, 0); ctx.restore();
+  ctx.fillText(metric, 0, 0); ctx.restore();
 
-  if(pts.length===0){
+  if(raw.length===0){
     ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('（当前筛选下没有含 fps 的事件）', cssW/2, padT+plotH/2);
-    hitboxes=[]; return pts;
+    ctx.fillText('（当前筛选下没有含 “'+metric+'” 的事件）', cssW/2, padT+plotH/2);
+    hitboxes=[]; return {count:0, numeric};
   }
 
-  // X 时间轴刻度（均匀 6 段）
+  const tMin = raw[0].tMs, tMax = raw[raw.length-1].tMs, span = tMax-tMin;
+  const xOf = t => span===0 ? padL+plotW/2 : padL + plotW*((t-tMin)/span);
+
+  // X 时间轴
   const baseY = padT+plotH;
   ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(padL,baseY); ctx.lineTo(cssW-padR,baseY); ctx.stroke();
-  const ticks = span===0 ? 1 : 6;
-  ctx.textBaseline='top'; ctx.textAlign='center';
+  const ticks = span===0 ? 0 : 6;
+  ctx.textBaseline='top'; ctx.textAlign='center'; ctx.font='11px sans-serif';
   for(let i=0;i<=ticks;i++){
     const t = span===0 ? tMin : tMin + span*(i/ticks);
     const x = xOf(t);
     ctx.strokeStyle='#f0f2f5'; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,baseY); ctx.stroke();
     ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x,baseY+4); ctx.stroke();
-    ctx.fillStyle='#9aa1ac'; ctx.font='11px sans-serif';
-    ctx.fillText(fmtClock(t), x, baseY+7);
-    if(span===0) break;
+    ctx.fillStyle='#9aa1ac'; ctx.fillText(fmtClock(t), x, baseY+7);
   }
-  // X 轴标题
-  ctx.fillStyle='#9aa1ac'; ctx.textAlign='right';
-  ctx.fillText('时间', cssW-padR, baseY+26);
+  ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText('时间', cssW-padR, baseY+26);
+
+  // 计算每个点坐标
+  const pts = raw.map(p=>{
+    const x = xOf(p.tMs);
+    const y = numeric ? yOf(p.v) : yOf(categories.indexOf(String(p.v)));
+    return {x,y,...p};
+  });
 
   // 折线
   ctx.beginPath();
-  pts.forEach((p,i)=>{ const x=xOf(p.tMs),y=yOf(p.fps); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  pts.forEach((p,i)=>{ i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y); });
   ctx.strokeStyle='#3b6cf6'; ctx.lineWidth=2; ctx.stroke();
 
   // 数据点
   hitboxes=[];
   pts.forEach(p=>{
-    const x=xOf(p.tMs), y=yOf(p.fps);
-    ctx.beginPath(); ctx.arc(x,y,4.5,0,Math.PI*2);
-    ctx.fillStyle=fpsColor(p.fps); ctx.fill();
-    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
-    ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-    ctx.fillText(p.fps, x, y-9);
-    hitboxes.push({x,y,...p});
+    ctx.beginPath(); ctx.arc(p.x,p.y,4.5,0,Math.PI*2);
+    ctx.fillStyle = (numeric && metric==='fps') ? fpsColor(p.v) : '#3b6cf6';
+    ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    if(numeric){
+      ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+      ctx.fillText(fmtNum(p.v), p.x, p.y-9);
+    }
+    hitboxes.push(p);
   });
-  return pts;
+  return {count:pts.length, numeric};
 }
 
 // tooltip
@@ -321,108 +372,147 @@ canvas.addEventListener('mousemove', e=>{
   let hit=null, best=1e9;
   for(const h of hitboxes){ const d=(h.x-mx)**2+(h.y-my)**2; if(d<best&&d<225){best=d;hit=h;} }
   if(hit){
-    tip.innerHTML = `<b>${hit.name}</b><br>时间 ${hit.time}<br>FPS ${hit.fps}`;
+    tip.innerHTML = `<b>${hit.name}</b><br>时间 ${hit.time}<br>${curMetric} = ${hit.v}`;
     tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px'; tip.style.opacity=1;
   } else tip.style.opacity=0;
 });
 canvas.addEventListener('mouseleave',()=>tip.style.opacity=0);
 
-// ---- 筛选 ----
-let allEvents = null;              // 解析出的全部事件
-const checkedNames = new Set();    // 当前勾选的事件名
+// ---- 状态 ----
+let allEvents = null;
+let curDate='';
+let curMetric='fps';
+const checkedNames = new Set();
 
-function buildFilter(events){
-  // 统计每个事件名的总数 / 含 fps 数
-  const stat = new Map(); // name -> {total, withFps}
+// 收集所有属性键 + 是否数值
+function collectMetrics(events){
+  const m = new Map(); // key -> {total, numeric}
   events.forEach(e=>{
-    if(!stat.has(e.name)) stat.set(e.name, {total:0, withFps:0});
-    const s = stat.get(e.name);
-    s.total++;
-    if(typeof e.propty.fps==='number') s.withFps++;
+    Object.entries(e.propty).forEach(([k,v])=>{
+      if(!m.has(k)) m.set(k,{total:0,numeric:0});
+      const s=m.get(k); s.total++; if(typeof v==='number') s.numeric++;
+    });
   });
+  return m;
+}
 
-  checkedNames.clear();
+function buildMetricSelect(events){
+  const metrics = collectMetrics(events);
+  const sel = document.getElementById('metric');
+  sel.innerHTML='';
+  // 排序：数值型优先，其次按出现次数
+  const entries = [...metrics.entries()].sort((a,b)=>{
+    const an=a[1].numeric>0, bn=b[1].numeric>0;
+    if(an!==bn) return an?-1:1;
+    return b[1].total-a[1].total;
+  });
+  entries.forEach(([k,s])=>{
+    const opt=document.createElement('option');
+    opt.value=k;
+    const type = s.numeric===s.total ? '数值' : (s.numeric>0?'混合':'文本');
+    opt.textContent = `${k}  (${type} · ${s.total})`;
+    sel.appendChild(opt);
+  });
+  // 默认选 fps，否则第一个
+  curMetric = metrics.has('fps') ? 'fps' : (entries[0] ? entries[0][0] : 'fps');
+  sel.value = curMetric;
+}
+
+function buildFilter(events, metric){
+  const stat = new Map(); // name -> {total, withMetric}
+  events.forEach(e=>{
+    if(!stat.has(e.name)) stat.set(e.name,{total:0,withMetric:0});
+    const s=stat.get(e.name); s.total++;
+    if(e.propty[metric]!==undefined) s.withMetric++;
+  });
   const list = document.getElementById('filterList');
   list.innerHTML='';
   for(const [name,s] of stat){
-    checkedNames.add(name);
-    const label = document.createElement('label');
-    label.className='filter-item';
-    const cb = document.createElement('input');
-    cb.type='checkbox'; cb.checked=true; cb.value=name;
+    const label=document.createElement('label'); label.className='filter-item';
+    const cb=document.createElement('input'); cb.type='checkbox';
+    cb.checked = checkedNames.has(name); cb.value=name;
     cb.addEventListener('change', ()=>{
       if(cb.checked) checkedNames.add(name); else checkedNames.delete(name);
       redraw();
     });
-    const txt = document.createElement('span');
-    txt.textContent = name;
-    const cnt = document.createElement('span');
-    if(s.withFps>0){ cnt.className='cnt'; cnt.textContent=`×${s.withFps}`; }
-    else { cnt.className='nofps'; cnt.textContent='无fps'; }
-    label.append(cb, txt, cnt);
+    const txt=document.createElement('span'); txt.textContent=name;
+    const cnt=document.createElement('span');
+    if(s.withMetric>0){ cnt.className='cnt'; cnt.textContent=`×${s.withMetric}`; }
+    else { cnt.className='nofps'; cnt.textContent='无'+metric; }
+    label.append(cb,txt,cnt);
     list.appendChild(label);
   }
   document.getElementById('filterPanel').style.display='block';
 }
 
+function updateLegend(numeric){
+  const el=document.getElementById('legend');
+  if(numeric && curMetric==='fps'){
+    el.innerHTML =
+      '<span><i style="background:#e5484d"></i>低 (&lt;30)</span>'+
+      '<span><i style="background:#e8a33d"></i>中 (30–50)</span>'+
+      '<span><i style="background:#2fa36b"></i>高 (&gt;50)</span>';
+  } else if(numeric){
+    el.innerHTML = '<span><i style="background:#3b6cf6"></i>'+curMetric+' 数值</span>';
+  } else {
+    el.innerHTML = '<span><i style="background:#3b6cf6"></i>'+curMetric+' 类别轨迹（纵轴为出现过的取值）</span>';
+  }
+}
+
 function redraw(){
   if(!allEvents) return;
   const filtered = allEvents.filter(e=>checkedNames.has(e.name));
-  const pts = drawChart(filtered);
+  // 事件名的“无metric”标注依赖当前 metric，切换时重建筛选文字
+  buildFilter(allEvents, curMetric);
+  const res = drawChart(filtered, curMetric);
+  updateLegend(res.numeric);
   document.getElementById('meta').textContent =
-    `${curDate||'无日期'} · 共 ${allEvents.length} 事件 · 已选 ${checkedNames.size} 类 · 绘制 ${pts.length} 点`;
+    `${curDate||'无日期'} · 共 ${allEvents.length} 事件 · 已选 ${checkedNames.size} 类 · 绘制 ${res.count} 点`;
+  document.getElementById('metricInfo').textContent =
+    res.numeric ? '数值波形，纵轴自动缩放' : '文本属性，纵轴为类别';
 }
 
 // ---- 交互 ----
 const statusEl=document.getElementById('status');
-let curDate='';
 
 function run(){
   const raw = document.getElementById('input').value;
-  const jsonPanel=document.getElementById('jsonPanel');
-  const chartPanel=document.getElementById('chartPanel');
   try{
     const data = parse(raw);
     curDate = data.date;
-    // JSON 输出去掉内部辅助字段 tMs
+    allEvents = data.events;
+
     const clean = {date:data.date, events:data.events.map(e=>({time:e.time,name:e.name,propty:e.propty}))};
     document.getElementById('json').textContent = JSON.stringify(clean,null,2);
-    jsonPanel.style.display='block';
-    chartPanel.style.display='block';
+    document.getElementById('jsonPanel').style.display='block';
+    document.getElementById('chartPanel').style.display='block';
 
-    allEvents = data.events;
-    buildFilter(allEvents);
+    // 全选事件名
+    checkedNames.clear();
+    allEvents.forEach(e=>checkedNames.add(e.name));
+
+    buildMetricSelect(allEvents);
     redraw();
-    statusEl.textContent = '✓ 转换成功'; statusEl.className='status ok';
+    statusEl.textContent='✓ 转换成功'; statusEl.className='status ok';
   }catch(err){
-    statusEl.textContent = '✗ '+err.message; statusEl.className='status err';
+    statusEl.textContent='✗ '+err.message; statusEl.className='status err';
     document.getElementById('meta').textContent='';
-    jsonPanel.style.display='none';
-    chartPanel.style.display='none';
-    document.getElementById('filterPanel').style.display='none';
+    ['jsonPanel','chartPanel','filterPanel'].forEach(id=>document.getElementById(id).style.display='none');
     allEvents=null;
   }
 }
 
+document.getElementById('metric').addEventListener('change', e=>{ curMetric=e.target.value; redraw(); });
 document.getElementById('run').onclick = run;
 document.getElementById('demo').onclick = ()=>{ document.getElementById('input').value=DEMO; run(); };
 document.getElementById('clear').onclick = ()=>{
   document.getElementById('input').value='';
   statusEl.textContent=''; document.getElementById('meta').textContent='';
-  document.getElementById('jsonPanel').style.display='none';
-  document.getElementById('chartPanel').style.display='none';
-  document.getElementById('filterPanel').style.display='none';
+  ['jsonPanel','chartPanel','filterPanel'].forEach(id=>document.getElementById(id).style.display='none');
   allEvents=null;
 };
-document.getElementById('checkAll').onclick = ()=>{
-  document.querySelectorAll('#filterList input').forEach(cb=>{ cb.checked=true; checkedNames.add(cb.value); });
-  redraw();
-};
-document.getElementById('checkNone').onclick = ()=>{
-  document.querySelectorAll('#filterList input').forEach(cb=>{ cb.checked=false; });
-  checkedNames.clear();
-  redraw();
-};
+document.getElementById('checkAll').onclick = ()=>{ allEvents&&allEvents.forEach(e=>checkedNames.add(e.name)); redraw(); };
+document.getElementById('checkNone').onclick = ()=>{ checkedNames.clear(); redraw(); };
 document.getElementById('copyBtn').onclick = e=>{
   e.preventDefault();
   navigator.clipboard.writeText(document.getElementById('json').textContent)
