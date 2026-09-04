@@ -33,6 +33,7 @@
   }
   button:hover{filter:brightness(1.05);}
   button.ghost{background:#eef1f6;color:var(--text);}
+  button.mini{padding:5px 12px;font-size:12px;}
   .status{font-size:13px;}
   .status.err{color:var(--danger);}
   .status.ok{color:var(--ok);}
@@ -44,7 +45,6 @@
     background:#0f1420;color:#d7e0ef;border-radius:8px;padding:14px;overflow:auto;
     font:12px/1.5 "Consolas","Menlo",monospace;max-height:360px;margin:10px 0 0;
   }
-  .hidden{display:none;}
   .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-bottom:6px;flex-wrap:wrap;}
   .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
   #tooltip{
@@ -52,12 +52,19 @@
     border-radius:6px;font-size:12px;white-space:nowrap;opacity:0;transition:opacity .08s;
     z-index:10;box-shadow:0 4px 14px rgba(0,0,0,.25);
   }
+  .filter-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .filter-title{font-weight:600;font-size:14px;}
+  .filter-list{display:flex;flex-wrap:wrap;gap:8px 18px;}
+  .filter-item{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none;}
+  .filter-item input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent);}
+  .filter-item .cnt{color:var(--muted);font-size:11px;}
+  .filter-item .nofps{color:#c0392b;font-size:11px;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>数数用户行为序列 · FPS 波形图</h1>
-  <p class="sub">把「用户行为序列」原始文本粘贴进来，点击生成。解析成功会画出 FPS 波形（横轴事件、纵轴 FPS 0–60），失败会报错。</p>
+  <p class="sub">把「用户行为序列」原始文本粘贴进来，点击生成。横轴为时间轴，纵轴为 FPS（0–60）。下方可勾选/取消事件名称进行筛选。</p>
 
   <div class="panel">
     <textarea id="input" placeholder="在这里粘贴数数导出的原始文本，例如：&#10;2026-09-03&#10;12:17:47.882&#10;ta_app_start&#10;事件名称&#10;ta_app_start&#10;12:17:51.023&#10;总服登录上报token&#10;token&#10;MwTe...&#10;account&#10;LDL3509546285738&#10;事件名称&#10;SDKLoginToken&#10;fps&#10;60"></textarea>
@@ -68,6 +75,15 @@
       <span id="status" class="status"></span>
       <span id="meta" class="meta"></span>
     </div>
+  </div>
+
+  <div class="panel" id="filterPanel" style="display:none;">
+    <div class="filter-head">
+      <span class="filter-title">事件筛选</span>
+      <button id="checkAll" class="ghost mini">全选</button>
+      <button id="checkNone" class="ghost mini">全不选</button>
+    </div>
+    <div class="filter-list" id="filterList"></div>
   </div>
 
   <div class="panel" id="chartPanel" style="display:none;">
@@ -152,7 +168,13 @@ fps
 const timeRe = /^\d{1,2}:\d{2}:\d{2}\.\d{1,3}$/;
 const dateRe = /^\d{4}-\d{2}-\d{2}$/;
 
-// 把原始文本解析成 {date, events:[{time,name,propty}]}
+function timeToMs(t){
+  const m = t.match(/^(\d{1,2}):(\d{2}):(\d{2})\.(\d{1,3})$/);
+  if(!m) return null;
+  return ((+m[1])*3600 + (+m[2])*60 + (+m[3]))*1000 + Number(m[4].padEnd(3,'0'));
+}
+
+// 把原始文本解析成 {date, events:[{time,tMs,name,propty}]}
 function parse(raw){
   const lines = raw.split(/\r?\n/).map(s=>s.trim()).filter(s=>s.length>0);
   if(lines.length===0) throw new Error("没有输入数据");
@@ -187,23 +209,33 @@ function parse(raw){
       propty[key] = val;
     }
     const name = propty["事件名称"] !== undefined ? String(propty["事件名称"]) : title;
-    events.push({time, name, propty});
+    events.push({time, tMs:timeToMs(time), name, propty});
   }
   if(events.length===0) throw new Error("解析失败：未识别到任何事件");
   return {date, events};
 }
 
-// ---- 波形图 ----
+// ---- 波形图（时间轴）----
 const canvas = document.getElementById('chart');
 const ctx = canvas.getContext('2d');
-let hitboxes = []; // 用于 tooltip
+let hitboxes = [];
 
 function fpsColor(v){ return v<30?'#e5484d': v<=50?'#e8a33d':'#2fa36b'; }
 
+function fmtClock(ms){
+  const s = Math.floor(ms/1000);
+  const hh = String(Math.floor(s/3600)%24).padStart(2,'0');
+  const mm = String(Math.floor(s/60)%60).padStart(2,'0');
+  const ss = String(s%60).padStart(2,'0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+// events: 已按筛选过滤后的事件数组
 function drawChart(events){
   const pts = events
-    .map((e,i)=>({fps: e.propty.fps, name:e.name, time:e.time, idx:i}))
-    .filter(p=>typeof p.fps==='number');
+    .map(e=>({fps:e.propty.fps, name:e.name, time:e.time, tMs:e.tMs}))
+    .filter(p=>typeof p.fps==='number' && typeof p.tMs==='number')
+    .sort((a,b)=>a.tMs-b.tMs);
 
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.parentElement.clientWidth - 32;
@@ -215,57 +247,67 @@ function drawChart(events){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,cssW,cssH);
 
-  const padL=44, padR=20, padT=16, padB=90;
+  const padL=44, padR=24, padT=16, padB=56;
   const plotW = cssW-padL-padR;
   const plotH = cssH-padT-padB;
   const maxY = 60;
   const yOf = v => padT + plotH*(1 - v/maxY);
-  const xOf = i => pts.length===1 ? padL+plotW/2 : padL + plotW*(i/(pts.length-1));
+
+  const tMin = pts.length ? pts[0].tMs : 0;
+  const tMax = pts.length ? pts[pts.length-1].tMs : 1;
+  const span = tMax - tMin;
+  const xOf = t => (span===0) ? padL+plotW/2 : padL + plotW*((t-tMin)/span);
 
   // Y 轴网格
-  ctx.font = '11px sans-serif';
-  ctx.textBaseline='middle';
+  ctx.font='11px sans-serif'; ctx.textBaseline='middle';
   for(let v=0; v<=60; v+=10){
-    const y = yOf(v);
-    ctx.strokeStyle = '#eceef1';
-    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
-    ctx.fillStyle = '#9aa1ac'; ctx.textAlign='right';
-    ctx.fillText(v, padL-8, y);
+    const y=yOf(v);
+    ctx.strokeStyle='#eceef1'; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(cssW-padR,y); ctx.stroke();
+    ctx.fillStyle='#9aa1ac'; ctx.textAlign='right'; ctx.fillText(v, padL-8, y);
   }
+  // Y 轴标题
+  ctx.save(); ctx.translate(12, padT+plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('FPS', 0, 0); ctx.restore();
 
   if(pts.length===0){
     ctx.fillStyle='#9aa1ac'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('（没有包含 fps 的事件，无法绘制波形）', cssW/2, padT+plotH/2);
+    ctx.fillText('（当前筛选下没有含 fps 的事件）', cssW/2, padT+plotH/2);
     hitboxes=[]; return pts;
   }
 
+  // X 时间轴刻度（均匀 6 段）
+  const baseY = padT+plotH;
+  ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(padL,baseY); ctx.lineTo(cssW-padR,baseY); ctx.stroke();
+  const ticks = span===0 ? 1 : 6;
+  ctx.textBaseline='top'; ctx.textAlign='center';
+  for(let i=0;i<=ticks;i++){
+    const t = span===0 ? tMin : tMin + span*(i/ticks);
+    const x = xOf(t);
+    ctx.strokeStyle='#f0f2f5'; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,baseY); ctx.stroke();
+    ctx.strokeStyle='#d7dbe0'; ctx.beginPath(); ctx.moveTo(x,baseY); ctx.lineTo(x,baseY+4); ctx.stroke();
+    ctx.fillStyle='#9aa1ac'; ctx.font='11px sans-serif';
+    ctx.fillText(fmtClock(t), x, baseY+7);
+    if(span===0) break;
+  }
+  // X 轴标题
+  ctx.fillStyle='#9aa1ac'; ctx.textAlign='right';
+  ctx.fillText('时间', cssW-padR, baseY+26);
+
   // 折线
   ctx.beginPath();
-  pts.forEach((p,i)=>{ const x=xOf(i),y=yOf(p.fps); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  pts.forEach((p,i)=>{ const x=xOf(p.tMs),y=yOf(p.fps); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
   ctx.strokeStyle='#3b6cf6'; ctx.lineWidth=2; ctx.stroke();
 
-  // 点 + x 标签
-  hitboxes = [];
-  ctx.textBaseline='alphabetic';
-  pts.forEach((p,i)=>{
-    const x=xOf(i), y=yOf(p.fps);
+  // 数据点
+  hitboxes=[];
+  pts.forEach(p=>{
+    const x=xOf(p.tMs), y=yOf(p.fps);
     ctx.beginPath(); ctx.arc(x,y,4.5,0,Math.PI*2);
     ctx.fillStyle=fpsColor(p.fps); ctx.fill();
     ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
-
-    // fps 数值
-    ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillStyle='#4b5563'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
     ctx.fillText(p.fps, x, y-9);
-
-    // x 轴标签（旋转）
-    ctx.save();
-    ctx.translate(x, cssH-padB+12);
-    ctx.rotate(-Math.PI/4);
-    ctx.fillStyle='#6b7280'; ctx.font='11px sans-serif'; ctx.textAlign='right';
-    let label = p.name; if(label.length>16) label = label.slice(0,15)+'…';
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
-
     hitboxes.push({x,y,...p});
   });
   return pts;
@@ -285,10 +327,55 @@ canvas.addEventListener('mousemove', e=>{
 });
 canvas.addEventListener('mouseleave',()=>tip.style.opacity=0);
 
+// ---- 筛选 ----
+let allEvents = null;              // 解析出的全部事件
+const checkedNames = new Set();    // 当前勾选的事件名
+
+function buildFilter(events){
+  // 统计每个事件名的总数 / 含 fps 数
+  const stat = new Map(); // name -> {total, withFps}
+  events.forEach(e=>{
+    if(!stat.has(e.name)) stat.set(e.name, {total:0, withFps:0});
+    const s = stat.get(e.name);
+    s.total++;
+    if(typeof e.propty.fps==='number') s.withFps++;
+  });
+
+  checkedNames.clear();
+  const list = document.getElementById('filterList');
+  list.innerHTML='';
+  for(const [name,s] of stat){
+    checkedNames.add(name);
+    const label = document.createElement('label');
+    label.className='filter-item';
+    const cb = document.createElement('input');
+    cb.type='checkbox'; cb.checked=true; cb.value=name;
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) checkedNames.add(name); else checkedNames.delete(name);
+      redraw();
+    });
+    const txt = document.createElement('span');
+    txt.textContent = name;
+    const cnt = document.createElement('span');
+    if(s.withFps>0){ cnt.className='cnt'; cnt.textContent=`×${s.withFps}`; }
+    else { cnt.className='nofps'; cnt.textContent='无fps'; }
+    label.append(cb, txt, cnt);
+    list.appendChild(label);
+  }
+  document.getElementById('filterPanel').style.display='block';
+}
+
+function redraw(){
+  if(!allEvents) return;
+  const filtered = allEvents.filter(e=>checkedNames.has(e.name));
+  const pts = drawChart(filtered);
+  document.getElementById('meta').textContent =
+    `${curDate||'无日期'} · 共 ${allEvents.length} 事件 · 已选 ${checkedNames.size} 类 · 绘制 ${pts.length} 点`;
+}
+
 // ---- 交互 ----
 const statusEl=document.getElementById('status');
-const metaEl=document.getElementById('meta');
-let lastEvents=null;
+let curDate='';
 
 function run(){
   const raw = document.getElementById('input').value;
@@ -296,19 +383,24 @@ function run(){
   const chartPanel=document.getElementById('chartPanel');
   try{
     const data = parse(raw);
-    document.getElementById('json').textContent = JSON.stringify(data,null,2);
+    curDate = data.date;
+    // JSON 输出去掉内部辅助字段 tMs
+    const clean = {date:data.date, events:data.events.map(e=>({time:e.time,name:e.name,propty:e.propty}))};
+    document.getElementById('json').textContent = JSON.stringify(clean,null,2);
     jsonPanel.style.display='block';
     chartPanel.style.display='block';
-    lastEvents = data.events;
-    const pts = drawChart(data.events);
+
+    allEvents = data.events;
+    buildFilter(allEvents);
+    redraw();
     statusEl.textContent = '✓ 转换成功'; statusEl.className='status ok';
-    metaEl.textContent = `${data.date||'无日期'} · ${data.events.length} 个事件 · ${pts.length} 个含 fps`;
   }catch(err){
     statusEl.textContent = '✗ '+err.message; statusEl.className='status err';
-    metaEl.textContent='';
+    document.getElementById('meta').textContent='';
     jsonPanel.style.display='none';
     chartPanel.style.display='none';
-    lastEvents=null;
+    document.getElementById('filterPanel').style.display='none';
+    allEvents=null;
   }
 }
 
@@ -316,16 +408,27 @@ document.getElementById('run').onclick = run;
 document.getElementById('demo').onclick = ()=>{ document.getElementById('input').value=DEMO; run(); };
 document.getElementById('clear').onclick = ()=>{
   document.getElementById('input').value='';
-  statusEl.textContent=''; metaEl.textContent='';
+  statusEl.textContent=''; document.getElementById('meta').textContent='';
   document.getElementById('jsonPanel').style.display='none';
   document.getElementById('chartPanel').style.display='none';
+  document.getElementById('filterPanel').style.display='none';
+  allEvents=null;
+};
+document.getElementById('checkAll').onclick = ()=>{
+  document.querySelectorAll('#filterList input').forEach(cb=>{ cb.checked=true; checkedNames.add(cb.value); });
+  redraw();
+};
+document.getElementById('checkNone').onclick = ()=>{
+  document.querySelectorAll('#filterList input').forEach(cb=>{ cb.checked=false; });
+  checkedNames.clear();
+  redraw();
 };
 document.getElementById('copyBtn').onclick = e=>{
   e.preventDefault();
   navigator.clipboard.writeText(document.getElementById('json').textContent)
     .then(()=>{ e.target.textContent='已复制'; setTimeout(()=>e.target.textContent='复制',1200); });
 };
-window.addEventListener('resize', ()=>{ if(lastEvents) drawChart(lastEvents); });
+window.addEventListener('resize', redraw);
 </script>
 </body>
 </html>
