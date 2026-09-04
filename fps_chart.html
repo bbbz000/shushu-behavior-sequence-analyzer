@@ -85,6 +85,8 @@
   .filter-item .nofps{color:#c0392b;font-size:11px;}
   .chart-ctl{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
   .chart-ctl label{font-size:13px;color:var(--muted);}
+  .chart-ctl label.chk{display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
+  .chart-ctl label.chk input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent);}
   .range-ctl{display:flex;flex-direction:column;gap:6px;margin:4px 0 12px;padding:10px 14px;background:var(--range-bg);border:1px solid var(--border);border-radius:8px;}
   .range-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);}
   .range-row .tag{min-width:34px;}
@@ -131,6 +133,7 @@
     <div class="chart-ctl">
       <label for="metric">分析属性（纵轴）</label>
       <select id="metric"></select>
+      <label class="chk"><input type="checkbox" id="showValues" checked>显示数值</label>
       <span id="metricInfo" class="meta" style="margin-left:0;"></span>
     </div>
     <div class="range-ctl" id="rangeCtl" style="display:none;">
@@ -325,6 +328,7 @@ function drawChart(events, metric){
     cat:cssVar('--c-cat'), baseline:cssVar('--c-baseline'), rel:cssVar('--c-reltext'),
     pborder:cssVar('--c-pointborder'), vlabel:cssVar('--c-vlabel'), accent:cssVar('--accent')
   };
+  const showVals = document.getElementById('showValues').checked;
   const raw = events
     .filter(e=>typeof e.tMs==='number' && e.propty[metric]!==undefined
               && e.tMs>=rangeStartMs && e.tMs<=rangeEndMs)
@@ -437,7 +441,7 @@ function drawChart(events, metric){
     ctx.beginPath(); ctx.arc(p.x,p.y,4.5,0,Math.PI*2);
     ctx.fillStyle = (numeric && metric==='fps') ? fpsColor(p.v) : C.accent;
     ctx.fill(); ctx.strokeStyle=C.pborder; ctx.lineWidth=1.5; ctx.stroke();
-    if(numeric){
+    if(numeric && showVals){
       ctx.fillStyle=C.vlabel; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
       ctx.fillText(fmtNum(p.v), p.x, p.y-9);
     }
@@ -703,6 +707,7 @@ document.getElementById('metric').addEventListener('change', e=>{
   setupRange(allEvents);   // 新属性可能有不同的时间跨度，重置滑块范围
   redraw();
 });
+document.getElementById('showValues').addEventListener('change', redraw);
 bindDualSlider();
 document.getElementById('rangeReset').onclick = ()=>{
   fracA=0; fracB=1;
